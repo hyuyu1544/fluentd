@@ -34,7 +34,7 @@
 - {a,b} -> 匹配 `a`, `b`
 - combine -> a{b,c.**} ...
 
-## issue I meet
+## issue
 
 1. no patterns matched
 ```
