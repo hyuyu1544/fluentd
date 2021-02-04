@@ -10,7 +10,7 @@
 - 缺點：要學習其語法，debug不易
 
 
-## usage
+### usage
 最常見的方式就是 `source` 收集日誌(e.g. docker log)，然後由串聯的 `filter` 做流式的處理，最後交給 `match` 進行分發
 
 - Source: 所有數據來自哪裡
@@ -34,6 +34,94 @@
 - {a,b} -> 匹配 `a`, `b`
 - combine -> a{b,c.**} ...
 
+### fluentd on k8s
+
+通常會是以daemonmset的形式存在在k8s中
+
+## build yaml file for fluentd
+
+以docker-compose為例，把log送進graylog. 
+
+fluentd server:
+```
+  fluentd-tester:
+    build:
+      context: .
+      dockerfile: fluentd.Dockerfile
+    environment:
+      FLUENTD_ARGS: --no-supervisor -q
+      ENV: dev
+      ES_ENDPOINT: http://host.docker.internal:9200
+      # SLACK_WEBHOOK:
+    volumes:
+      - ./input-log:/var/log/input
+      - ./fluentd-config:/etc/fluent/config.d
+    command: /run.sh
+    depends_on:
+      - elasticsearch
+    networks:
+      - test-fluentd-network
+```
+
+graylog server:
+graylog 會需要elasticsearch及mongodb, mongodb用來記錄graylog的metadata, es是graylog存log的資料庫
+```
+elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch-oss:6.8.10
+    container_name: graylog-elasticsearch
+    restart: unless-stopped
+    environment:
+      - http.host=0.0.0.0
+      - transport.host=localhost
+      - "ES_JAVA_OPTS=-Xms1g -Xmx1g"
+      - network.host=0.0.0.0
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+    ports:
+      - 9200:9200
+    networks:
+      - test-fluentd-network
+  graylog:
+    image: graylog/graylog:3.2
+    container_name: graylog32-server
+    restart: unless-stopped
+    environment:
+      # - GRAYLOG_PASSWORD_SECRET=somepasswordpepper
+      # - GRAYLOG_ROOT_PASSWORD_SHA2=8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918
+      - GRAYLOG_HTTP_EXTERNAL_URI=http://127.0.0.1:9000/
+      - GRAYLOG_MONGODB_URI=mongodb://mongodb:27017/graylog
+    depends_on:
+      - mongodb
+      - elasticsearch
+    networks:
+      - test-fluentd-network
+    ports:
+      # Graylog web interface and REST API
+      - 9000:9000
+      # Syslog TCP
+      - 1514:1514
+      # Syslog UDP
+      - 1514:1514/udp
+      # GELF TCP
+      - 12201:12201
+      # GELF UDP
+      - 12201:12201/udp
+      # Text
+      - 5555:5555
+  mongodb:
+    image: mongo:3
+    container_name: graylog-mongo
+    restart: unless-stopped
+    networks:
+      - test-fluentd-network
+```
+
 ## issue
 
 1. no patterns matched
@@ -44,4 +132,5 @@
 解：下面的match pattern 沒有跟上面給的tag match到
 
 ## Reference
-- https://www.itread01.com/content/1549792272.html
+- fluentd concept: https://www.itread01.com/content/1549792272.html
+
